@@ -6,7 +6,6 @@ class PageTableEntry:
         self.reference = False
         self.last_access_time = 0
         self.load_time = 0  # For FIFO
-        self.access_count = 0  # For LFU
         
     def is_valid(self):
         return self.physical_page_num is not None

@@ -5,12 +5,13 @@ import random
 
 class VirtualMemorySimulator:
     
-    def __init__(self, algorithm='FIFO', random_seed=None):
+    def __init__(self, algorithm='FIFO', random_seed=None, future_references=None):
         self.algorithm = algorithm
         self.physical_memory = PhysicalMemory(num_frames=32)
         self.page_tables = {}  # process_id -> PageTable
         self.stats = Statistics()
         self.current_time = 0
+        self.future_references = future_references
         
         # Set random seed for RAND algorithm
         if algorithm == 'RAND':
@@ -43,7 +44,6 @@ class VirtualMemorySimulator:
         # Update reference bit and last access time
         entry.reference = True
         entry.last_access_time = self.current_time
-        entry.access_count += 1
         
         # Check if page is in memory
         if entry.is_valid():
@@ -88,8 +88,8 @@ class VirtualMemorySimulator:
             return self.select_victim_lru()
         elif self.algorithm == 'PER':
             return self.select_victim_per()
-        elif self.algorithm == 'LFU':
-            return self.select_victim_lfu()
+        elif self.algorithm == 'OPT':
+            return self.select_victim_optimal()
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
     
@@ -144,64 +144,6 @@ class VirtualMemorySimulator:
         
         return self.evict_page(victim_frame)
     
-    def select_victim_lfu(self):
-        # First pass: find the oldest access time (like LRU)
-        oldest_time = float('inf')
-        candidates = []  # Pages with oldest access times
-        
-        for frame_num in range(self.physical_memory.num_frames):
-            proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
-            page_table = self.page_tables[proc_id]
-            entry = page_table.get_entry(vpage_num)
-            
-            if entry.last_access_time < oldest_time:
-                oldest_time = entry.last_access_time
-                candidates = [(frame_num, entry, proc_id, vpage_num)]
-            elif entry.last_access_time == oldest_time:
-                candidates.append((frame_num, entry, proc_id, vpage_num))
-
-        RECENCY_WINDOW = 10  # Similar recency
-        
-
-        if len(candidates) == 1:
-            # Check if other pages are within the window
-            for frame_num in range(self.physical_memory.num_frames):
-                proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
-                page_table = self.page_tables[proc_id]
-                entry = page_table.get_entry(vpage_num)
-                
-                if entry.last_access_time <= oldest_time + RECENCY_WINDOW:
-                    if (frame_num, entry, proc_id, vpage_num) not in candidates:
-                        candidates.append((frame_num, entry, proc_id, vpage_num))
-        
-        victim_frame = candidates[0][0]
-        victim_entry = candidates[0][1]
-        victim_dirty = victim_entry.dirty
-        victim_page_num = candidates[0][3]
-        min_frequency = victim_entry.access_count
-        
-        for frame_num, entry, proc_id, vpage_num in candidates[1:]:
-            if entry.access_count < min_frequency:
-                victim_frame = frame_num
-                victim_entry = entry
-                victim_dirty = entry.dirty
-                victim_page_num = vpage_num
-                min_frequency = entry.access_count
-            elif entry.access_count == min_frequency:
-                # Same frequency - prefer non-dirty, then lower page number
-                if not entry.dirty and victim_dirty:
-                    victim_frame = frame_num
-                    victim_entry = entry
-                    victim_dirty = entry.dirty
-                    victim_page_num = vpage_num
-                elif entry.dirty == victim_dirty and vpage_num < victim_page_num:
-                    victim_frame = frame_num
-                    victim_entry = entry
-                    victim_dirty = entry.dirty
-                    victim_page_num = vpage_num
-        
-        return self.evict_page(victim_frame)
-    
     def select_victim_per(self):
         categories = [
             (False, False),  # unreferenced, clean
@@ -228,6 +170,64 @@ class VirtualMemorySimulator:
         
         return self.evict_page(0)
     
+    def select_victim_optimal(self):
+        """
+        Optimal algorithm: Replace the page that will be used furthest in the future
+        (or never used again).
+        """
+        if self.future_references is None:
+            raise ValueError("OPT algorithm requires future_references to be provided")
+        
+        # Find the next reference time for each page currently in memory
+        max_future_time = -1
+        victim_frame = 0
+        victim_dirty = True
+        victim_page_num = float('inf')
+        
+        for frame_num in range(self.physical_memory.num_frames):
+            proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
+            page_table = self.page_tables[proc_id]
+            entry = page_table.get_entry(vpage_num)
+            
+            # Look ahead in future references to find when this page will be referenced next
+            next_ref_time = None
+            for idx in range(self.current_time, len(self.future_references)):
+                future_proc_id, future_page_num = self.future_references[idx]
+                if future_proc_id == proc_id and future_page_num == vpage_num:
+                    next_ref_time = idx
+                    break
+            
+            # If page is never referenced again, it's the best candidate
+            if next_ref_time is None:
+                # Never used again - this is optimal to replace
+                # Use tiebreaker: prefer non-dirty, then lower page number
+                if victim_frame == 0 or (not entry.dirty and victim_dirty) or \
+                   (entry.dirty == victim_dirty and vpage_num < victim_page_num):
+                    victim_frame = frame_num
+                    victim_dirty = entry.dirty
+                    victim_page_num = vpage_num
+                    max_future_time = float('inf')  # Never referenced
+            else:
+                # Page will be referenced at next_ref_time
+                # We want to replace the page referenced furthest in the future
+                if next_ref_time > max_future_time:
+                    max_future_time = next_ref_time
+                    victim_frame = frame_num
+                    victim_dirty = entry.dirty
+                    victim_page_num = vpage_num
+                elif next_ref_time == max_future_time:
+                    # Same future time - tiebreaker: prefer non-dirty, then lower page number
+                    if not entry.dirty and victim_dirty:
+                        victim_frame = frame_num
+                        victim_dirty = entry.dirty
+                        victim_page_num = vpage_num
+                    elif entry.dirty == victim_dirty and vpage_num < victim_page_num:
+                        victim_frame = frame_num
+                        victim_dirty = entry.dirty
+                        victim_page_num = vpage_num
+        
+        return self.evict_page(victim_frame)
+    
     def evict_page(self, frame_num):
         proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
         page_table = self.page_tables[proc_id]
@@ -239,7 +239,6 @@ class VirtualMemorySimulator:
         entry.physical_page_num = None
         entry.dirty = False
         entry.reference = False
-        entry.access_count = 0  # Reset access count for LFU
         
         return frame_num, is_dirty
     
@@ -247,6 +246,20 @@ class VirtualMemorySimulator:
         print(f"\n{'='*60}")
         print(f"Running {self.algorithm} algorithm on {filename}")
         print(f"{'='*60}")
+        
+        if self.algorithm == 'OPT' and self.future_references is None:
+            # Load all references first
+            future_refs = []
+            with open(filename, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) != 3:
+                        continue
+                    process_id = int(parts[0])
+                    address = int(parts[1])
+                    page_num = address >> 9  # Parse address
+                    future_refs.append((process_id, page_num))
+            self.future_references = future_refs
         
         with open(filename, 'r') as f:
             for line in f:
@@ -268,7 +281,7 @@ class VirtualMemorySimulator:
 
 
 def main():
-    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'LFU']
+    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'OPT']
     data_files = ['data1.txt', 'data2.txt']
     
     results = {}

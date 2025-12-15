@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 from simulator import VirtualMemorySimulator
 
-algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'LFU']
+algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'OPT']
 data_files = ['data1.txt', 'data2.txt']
 results = {}
 

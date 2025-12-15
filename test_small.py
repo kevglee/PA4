@@ -9,7 +9,7 @@ def test_small():
         for i, line in enumerate(f, 1):
             print(f"  Line {i}: {line.strip()}")
 
-    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'LFU']
+    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'OPT']
     
     for algorithm in algorithms:
         print(f"\n{algorithm} Algorithm:")

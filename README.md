@@ -16,18 +16,18 @@ This project simulates a virtual memory system with five page replacement algori
 
 ## Running the Simulator
 
-Running all four algorithms on both input files:
+Running all algorithms on both input files:
 
 ```bash
 python simulator.py
 ```
 
 This will execute:
-- **RAND** - Random replacement (uses random seed each run)
+- **RAND** - Random Replacement
 - **FIFO** - First In First Out
 - **LRU** - Least Recently Used
 - **PER** - Periodic Reference Reset
-- **LFU** - LRU and Least Frequently Used Hybrid
+- **OPT** - Optimal from Future Knowledge
 
 on both `data1.txt` and `data2.txt`, displaying statistics for each run.
 
