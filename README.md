@@ -16,7 +16,7 @@ This project simulates a virtual memory system with five page replacement algori
 
 ## Running the Simulator
 
-To run all five algorithms on both input files:
+Running all four algorithms on both input files:
 
 ```bash
 python simulator.py
@@ -33,7 +33,7 @@ on both `data1.txt` and `data2.txt`, displaying statistics for each run.
 
 ## Testing
 
-To verify the simulator with a small test case:
+Verifying the simulator with a small test case:
 
 ```bash
 python test_small.py
@@ -43,7 +43,13 @@ This runs all algorithms on `test.txt`.
 
 ## Generating Graphs
 
-To create comparison graphs:
+Installing matplotlib to create graphs:
+
+```bash
+pip install matplotlib
+```
+
+Creating comparison graphs:
 
 ```bash
 python generate_graphs.py
