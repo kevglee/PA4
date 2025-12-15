@@ -5,16 +5,20 @@ import random
 
 class VirtualMemorySimulator:
     
-    def __init__(self, algorithm='FIFO', random_seed=42):
+    def __init__(self, algorithm='FIFO', random_seed=None):
         self.algorithm = algorithm
         self.physical_memory = PhysicalMemory(num_frames=32)
         self.page_tables = {}  # process_id -> PageTable
         self.stats = Statistics()
         self.current_time = 0
         
-        # Set random seed for reproducibility
+        # Set random seed for RAND algorithm
         if algorithm == 'RAND':
-            random.seed(random_seed)
+            if random_seed is None:
+                import time
+                random.seed(int(time.time() * 1000000) % (2**31))
+            else:
+                random.seed(random_seed)
         
     def parse_address(self, address):
         page_num = address >> 9  # Upper 7 bits
@@ -39,6 +43,7 @@ class VirtualMemorySimulator:
         # Update reference bit and last access time
         entry.reference = True
         entry.last_access_time = self.current_time
+        entry.access_count += 1
         
         # Check if page is in memory
         if entry.is_valid():
@@ -46,7 +51,7 @@ class VirtualMemorySimulator:
             if operation == 'W':
                 entry.dirty = True
         else:
-            # Page fault - need to load page
+            # Page fault
             self.handle_page_fault(process_id, page_num, operation)
         
         # For PER algorithm: reset reference bits every 200 references
@@ -58,23 +63,19 @@ class VirtualMemorySimulator:
         page_table = self.get_page_table(process_id)
         entry = page_table.get_entry(page_num)
         
-        # Find a frame to use
         frame_num = self.physical_memory.find_free_frame()
         
         if frame_num is None:
-            # No free frame - need to replace a page
             frame_num, is_dirty = self.select_victim_page()
             self.stats.record_page_fault(is_dirty_replacement=is_dirty)
         else:
             # Free frame available
             self.stats.record_page_fault(is_dirty_replacement=False)
         
-        # Load page into frame
         self.physical_memory.allocate_frame(frame_num, process_id, page_num)
         entry.physical_page_num = frame_num
         entry.load_time = self.current_time
         
-        # Set dirty bit if this is a write operation
         if operation == 'W':
             entry.dirty = True
     
@@ -87,6 +88,8 @@ class VirtualMemorySimulator:
             return self.select_victim_lru()
         elif self.algorithm == 'PER':
             return self.select_victim_per()
+        elif self.algorithm == 'LFU':
+            return self.select_victim_lfu()
         else:
             raise ValueError(f"Unknown algorithm: {self.algorithm}")
     
@@ -141,6 +144,64 @@ class VirtualMemorySimulator:
         
         return self.evict_page(victim_frame)
     
+    def select_victim_lfu(self):
+        # First pass: find the oldest access time (like LRU)
+        oldest_time = float('inf')
+        candidates = []  # Pages with oldest access times
+        
+        for frame_num in range(self.physical_memory.num_frames):
+            proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
+            page_table = self.page_tables[proc_id]
+            entry = page_table.get_entry(vpage_num)
+            
+            if entry.last_access_time < oldest_time:
+                oldest_time = entry.last_access_time
+                candidates = [(frame_num, entry, proc_id, vpage_num)]
+            elif entry.last_access_time == oldest_time:
+                candidates.append((frame_num, entry, proc_id, vpage_num))
+
+        RECENCY_WINDOW = 10  # Similar recency
+        
+
+        if len(candidates) == 1:
+            # Check if other pages are within the window
+            for frame_num in range(self.physical_memory.num_frames):
+                proc_id, vpage_num = self.physical_memory.get_frame_info(frame_num)
+                page_table = self.page_tables[proc_id]
+                entry = page_table.get_entry(vpage_num)
+                
+                if entry.last_access_time <= oldest_time + RECENCY_WINDOW:
+                    if (frame_num, entry, proc_id, vpage_num) not in candidates:
+                        candidates.append((frame_num, entry, proc_id, vpage_num))
+        
+        victim_frame = candidates[0][0]
+        victim_entry = candidates[0][1]
+        victim_dirty = victim_entry.dirty
+        victim_page_num = candidates[0][3]
+        min_frequency = victim_entry.access_count
+        
+        for frame_num, entry, proc_id, vpage_num in candidates[1:]:
+            if entry.access_count < min_frequency:
+                victim_frame = frame_num
+                victim_entry = entry
+                victim_dirty = entry.dirty
+                victim_page_num = vpage_num
+                min_frequency = entry.access_count
+            elif entry.access_count == min_frequency:
+                # Same frequency - prefer non-dirty, then lower page number
+                if not entry.dirty and victim_dirty:
+                    victim_frame = frame_num
+                    victim_entry = entry
+                    victim_dirty = entry.dirty
+                    victim_page_num = vpage_num
+                elif entry.dirty == victim_dirty and vpage_num < victim_page_num:
+                    victim_frame = frame_num
+                    victim_entry = entry
+                    victim_dirty = entry.dirty
+                    victim_page_num = vpage_num
+        
+        return self.evict_page(victim_frame)
+    
     def select_victim_per(self):
         categories = [
             (False, False),  # unreferenced, clean
@@ -161,11 +222,10 @@ class VirtualMemorySimulator:
                     candidates.append((frame_num, vpage_num))
             
             if candidates:
-                # Choose lowest numbered page in this category
+                # Always replace the lowest numbered page
                 victim_frame = min(candidates, key=lambda x: x[1])[0]
                 return self.evict_page(victim_frame)
         
-        # Should never reach here
         return self.evict_page(0)
     
     def evict_page(self, frame_num):
@@ -179,6 +239,7 @@ class VirtualMemorySimulator:
         entry.physical_page_num = None
         entry.dirty = False
         entry.reference = False
+        entry.access_count = 0  # Reset access count for LFU
         
         return frame_num, is_dirty
     
@@ -207,11 +268,8 @@ class VirtualMemorySimulator:
 
 
 def main():
-    algorithms = ['RAND', 'FIFO', 'LRU', 'PER']
+    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'LFU']
     data_files = ['data1.txt', 'data2.txt']
-    
-    # Random seed for reproducibility
-    RANDOM_SEED = 42  # You can use any integer value
     
     results = {}
     
@@ -222,7 +280,7 @@ def main():
         print(f"{'#'*60}")
         
         for algorithm in algorithms:
-            simulator = VirtualMemorySimulator(algorithm=algorithm, random_seed=RANDOM_SEED)
+            simulator = VirtualMemorySimulator(algorithm=algorithm, random_seed=None)
             stats = simulator.run_simulation(data_file)
             results[data_file][algorithm] = {
                 'page_faults': stats.page_faults,

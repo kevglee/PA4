@@ -9,12 +9,12 @@ def test_small():
         for i, line in enumerate(f, 1):
             print(f"  Line {i}: {line.strip()}")
 
-    algorithms = ['RAND', 'FIFO', 'LRU', 'PER']
+    algorithms = ['RAND', 'FIFO', 'LRU', 'PER', 'LFU']
     
     for algorithm in algorithms:
         print(f"\n{algorithm} Algorithm:")
         print("-"*60)
-        simulator = VirtualMemorySimulator(algorithm=algorithm, random_seed=42)
+        simulator = VirtualMemorySimulator(algorithm=algorithm, random_seed=None)
         stats = simulator.run_simulation('test.txt')
         
 if __name__ == '__main__':

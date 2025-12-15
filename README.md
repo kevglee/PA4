@@ -1,9 +1,8 @@
 # PA4 - Virtual Memory Simulator
-COMPE 571 Programming Assignment 4
 
 ## Overview
 
-This project simulates a virtual memory system with four page replacement algorithms.
+This project simulates a virtual memory system with five page replacement algorithms.
 
 ## Files
 
@@ -17,17 +16,18 @@ This project simulates a virtual memory system with four page replacement algori
 
 ## Running the Simulator
 
-To run all four algorithms on both input files:
+To run all five algorithms on both input files:
 
 ```bash
 python simulator.py
 ```
 
 This will execute:
-- **RAND** - Random replacement with seed 42
+- **RAND** - Random replacement (uses random seed each run)
 - **FIFO** - First In First Out
 - **LRU** - Least Recently Used
-- **PER** - Periodic reference reset
+- **PER** - Periodic Reference Reset
+- **LFU** - LRU and Least Frequently Used Hybrid
 
 on both `data1.txt` and `data2.txt`, displaying statistics for each run.
 
@@ -39,7 +39,7 @@ To verify the simulator with a small test case:
 python test_small.py
 ```
 
-This runs all algorithms on `test.txt` (10 memory references).
+This runs all algorithms on `test.txt`.
 
 ## Generating Graphs
 
